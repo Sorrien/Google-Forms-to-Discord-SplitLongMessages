@@ -68,43 +68,98 @@ for (var i = 0; i < response.length; i++) {
     }
 }
 
-if (items.map(data).toString().length + shortDescription.length > 1999) throw "Discord limit reached. Please add limits to your questions!";
-
 function plainText(e) {
+    const textLimit = 2000;
+    let preText = `${mention ? mention : ''}${title ? `**${title}**` : `**${form.getTitle()}**`}\n\n${shortDescription ? `${shortDescription}\n\n` : ''}`;
 
-    // A webhook construct, which sets up the correct formatting for sending to Discord.
-    const text = {
-        "method": "post",
-        "headers": { "Content-Type": "application/json" },
-        "muteHttpExceptions": true,
-        "payload": JSON.stringify({
-            "content": `${mention ? mention : ''}${title ? `**${title}**` : `**${form.getTitle()}**`}\n\n${shortDescription ? `${shortDescription}\n\n${items.map(data).join('\n\n')}` : items.map(data).join('\n\n')}`
-        }),
-    };
+    let contentChunks = splitItemsIntoChunks(items, preText, textLimit)
 
-    // We now loop through our webhooks and send them one by one to the respectful channels.
-    for (var i = 0; i < webhooks.length; i++) { UrlFetchApp.fetch(webhooks[i], text); };
+    contentChunks.forEach(content => {
+        // A webhook construct, which sets up the correct formatting for sending to Discord.
+        const text = {
+            "method": "post",
+            "headers": { "Content-Type": "application/json" },
+            "muteHttpExceptions": true,
+            "payload": JSON.stringify({
+                "content": content
+            }),
+        };
+
+        // We now loop through our webhooks and send them one by one to the respectful channels.
+        for (var i = 0; i < webhooks.length; i++) { UrlFetchApp.fetch(webhooks[i], text); };
+    });
 }
 
 function embedText(e) {
+    const textLimit = 4096;
+    let preText = shortDescription ? `${shortDescription}\n\n` : '';
+    let contentChunks = splitItemsIntoChunks(items, preText, textLimit)
 
-    // A webhook embed construct, which sets up the correct formatting for sending to Discord.
-    const embed = {
-        "method": "post",
-        "headers": { "Content-Type": "application/json" },
-        "muteHttpExceptions": true,
-        "payload": JSON.stringify({
-            "content": mention ? mention : '',
-            "embeds": [{
-                "title": title ? title : form.getTitle(), // Either the set title or the forms title.
-                "description": shortDescription ? `${shortDescription}\n\n${items.map(data).join('\n\n')}` : items.map(data).join('\n\n'), // Either the desc or just the res.
-                "thumbnail": { url: avatarImage ? encodeURI(avatarImage) : null }, // The tiny image in the right of the embed
-                "color": colour ? parseInt(colour.substr(1), 16) : Math.floor(Math.random() * 16777215), // Either the set colour or random.
-                "timestamp": new Date().toISOString() // Today's date.
-            }]
-        }),
-    };
+    let index = 0;
+    contentChunks.forEach(content => {
+        //for (var i = 0; i < contentChunks.length; i++) {
+        //  let content = contentChunks[i];
+        // A webhook embed construct, which sets up the correct formatting for sending to Discord.  
+        index++;
+        const embed = {
+            "method": "post",
+            "headers": { "Content-Type": "application/json" },
+            "muteHttpExceptions": true,
+            "payload": JSON.stringify({
+                "content": mention ? mention : '',
+                "embeds": [{
+                    "title": `${title ? title : form.getTitle()}${contentChunks.length > 1 ? ` ${index}` : ''}`, // Either the set title or the forms title.
+                    "description": content, // Either the desc or just the res.
+                    "thumbnail": { url: avatarImage ? encodeURI(avatarImage) : null }, // The tiny image in the right of the embed
+                    "color": colour ? parseInt(colour.substr(1), 16) : Math.floor(Math.random() * 16777215), // Either the set colour or random.
+                    "timestamp": new Date().toISOString() // Today's date.
+                }]
+            }),
+        };
 
-    // We now loop through our webhooks and send them one by one to the respectful channels.
-    for (var i = 0; i < webhooks.length; i++) { UrlFetchApp.fetch(webhooks[i], embed); };
+        // We now loop through our webhooks and send them one by one to the respectful channels.
+        for (var i = 0; i < webhooks.length; i++) { UrlFetchApp.fetch(webhooks[i], embed); };
+    });
+    //}
+}
+
+function splitItemsIntoChunks(items, preText, textLimit) {
+    var contentChunks = [];
+    var currentTextChunk = preText;
+
+    items.forEach(item => {
+        let itemText = `${data(item)}`;
+        if (itemText.length >= textLimit) {
+            itemText.split(/(\s+)/).forEach(word => {
+                let result = addToChunkOrSplit(currentTextChunk, textLimit - currentTextChunk.length, contentChunks, word);
+                contentChunks = result.contentChunks;
+                currentTextChunk = result.currentTextChunk;
+            });
+            const newline = '\n\n';
+            let result = addToChunkOrSplit(currentTextChunk, textLimit - currentTextChunk.length, contentChunks, newline);
+            contentChunks = result.contentChunks;
+            currentTextChunk = result.currentTextChunk;
+        } else {
+            const itemTextFormatted = `${itemText}\n\n`;
+            let result = addToChunkOrSplit(currentTextChunk, textLimit, contentChunks, itemTextFormatted);
+            contentChunks = result.contentChunks;
+            currentTextChunk = result.currentTextChunk;
+        }
+    });
+    if (currentTextChunk != contentChunks[contentChunks.length - 1]) contentChunks.push(currentTextChunk.trim());
+    return contentChunks;
+}
+
+function addToChunkOrSplit(currentTextChunk, textLimit, contentChunks, text) {
+    if (text.length + currentTextChunk.length >= textLimit) {
+        contentChunks.push(currentTextChunk.trim());
+        currentTextChunk = text;
+    } else {
+        currentTextChunk += text;
+    }
+    return { currentTextChunk: currentTextChunk, contentChunks: contentChunks };
+}
+
+function isEmptyOrSpaces(str) {
+    return str === null || str === undefined || str.match(/^ *$/) !== null;
 }
